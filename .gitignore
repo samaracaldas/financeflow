@@ -8,7 +8,13 @@ frontend/node_modules
 backend/.env
 frontend/.env
 
+
 # build
 dist
 backend/dist
 frontend/.next
+
+# forçar tracking dos exemplos
+!.env.example
+!backend/.env.example
+!frontend/.env.example
