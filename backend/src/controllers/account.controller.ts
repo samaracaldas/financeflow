@@ -5,6 +5,9 @@ import { AuthRequest } from '../middlewares/auth.middleware'
 
 const accountSchema = z.object({
   name: z.string().min(2, 'Nome deve ter pelo menos 2 caracteres'),
+  type: z.enum(['cash', 'bank', 'card', 'other']),
+  color: z.string().min(1, 'Cor obrigatória'),
+  initialBalance: z.number().default(0),
 })
 
 export const createAccount = async (req: AuthRequest, res: Response): Promise<void> => {

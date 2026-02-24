@@ -18,7 +18,7 @@ const TransactionSchema = new Schema<ITransaction>(
     amount: { type: Number, required: true },
     type: { type: String, enum: ['income', 'expense'], required: true },
     category: { type: Schema.Types.ObjectId, ref: 'Category', required: true },
-    account: { type: Schema.Types.ObjectId, ref: 'Account', required: true },
+    account: { type: Schema.Types.ObjectId, ref: 'Account', required: false },
     user: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     description: { type: String },
     date: { type: Date, required: true },

@@ -8,7 +8,7 @@ const transactionSchema = z.object({
   amount: z.number().positive('Valor deve ser positivo'),
   type: z.enum(['income', 'expense']),
   category: z.string().min(1, 'Categoria obrigatória'),
-  account: z.string().min(1, 'Conta obrigatória'),
+  account: z.string().optional().or(z.literal('')),
   description: z.string().optional(),
   date: z.string().min(1, 'Data obrigatória'),
 })
@@ -20,7 +20,7 @@ export const createTransaction = async (req: AuthRequest, res: Response): Promis
     return
   }
 
-  const transaction = await Transaction.create({ ...parsed.data, user: req.userId })
+  const transaction = await Transaction.create({ ...parsed.data, account: parsed.data.account || undefined, user: req.userId })
   res.status(201).json(transaction)
 }
 
@@ -39,8 +39,8 @@ export const getTransactions = async (req: AuthRequest, res: Response): Promise<
   }
 
   const transactions = await Transaction.find(filters)
-    .populate('category', 'name')
-    .populate('account', 'name')
+    .populate('category', 'name color type')
+    .populate('account', 'name color type')
     .sort({ date: -1 })
 
   res.status(200).json(transactions)
@@ -48,8 +48,8 @@ export const getTransactions = async (req: AuthRequest, res: Response): Promise<
 
 export const getTransactionById = async (req: AuthRequest, res: Response): Promise<void> => {
   const transaction = await Transaction.findOne({ _id: req.params.id, user: req.userId })
-    .populate('category', 'name')
-    .populate('account', 'name')
+    .populate('category', 'name color type')
+    .populate('account', 'name color type')
 
   if (!transaction) {
     res.status(404).json({ message: 'Transação não encontrada' })

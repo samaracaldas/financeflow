@@ -104,3 +104,12 @@ export const logout = async (req: Request, res: Response): Promise<void> => {
   res.clearCookie('token')
   res.status(200).json({ message: 'Logout realizado com sucesso' })
 }
+
+export const getMe = async (req: AuthRequest, res: Response): Promise<void> => {
+  const user = await User.findById(req.userId).select('-password')
+  if (!user) {
+    res.status(404).json({ message: 'Usuário não encontrado' })
+    return
+  }
+  res.status(200).json({ id: user._id, name: user.name, email: user.email })
+}

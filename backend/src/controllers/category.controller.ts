@@ -5,6 +5,8 @@ import { AuthRequest } from '../middlewares/auth.middleware'
 
 const categorySchema = z.object({
   name: z.string().min(2, 'Nome deve ter pelo menos 2 caracteres'),
+  type: z.enum(['income', 'expense']),
+  color: z.string().min(1, 'Cor obrigatória'),
 })
 
 export const createCategory = async (req: AuthRequest, res: Response): Promise<void> => {
