@@ -1,4 +1,5 @@
 import { Request, Response } from 'express'
+import { AuthRequest } from '../middlewares/auth.middleware'
 import bcrypt from 'bcryptjs'
 import { z } from 'zod'
 import User from '../models/User'
