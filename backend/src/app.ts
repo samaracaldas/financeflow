@@ -16,7 +16,7 @@ connectDB();
 const app = express();
 const allowedOrigins = [
     'http://localhost:3000',
-    'https://financeflow-orcin.vercel.app',
+    'https://financesflow.vercel.app/',
   ]
 
   app.use(cors({

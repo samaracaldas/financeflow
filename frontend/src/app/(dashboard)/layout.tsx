@@ -97,7 +97,7 @@ export default function DashboardLayout({ children }: { readonly children: React
           <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary">
             <Wallet className="w-4 h-4 text-primary-foreground" />
           </div>
-          <span className="text-lg font-semibold text-foreground tracking-tight">FinanceFlow</span>
+          <span className="text-lg font-semibold text-foreground tracking-tight">FinancesFlow</span>
         </div>
         <SidebarContent
           pathname={pathname}
@@ -117,7 +117,7 @@ export default function DashboardLayout({ children }: { readonly children: React
                 <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary">
                   <Wallet className="w-4 h-4 text-primary-foreground" />
                 </div>
-                <span className="text-lg font-semibold text-foreground tracking-tight">FinanceFlow</span>
+                <span className="text-lg font-semibold text-foreground tracking-tight">FinancesFlow</span>
               </div>
               <Button variant="ghost" size="icon" onClick={() => setMobileOpen(false)}>
                 <X className="w-4 h-4" />
@@ -143,7 +143,7 @@ export default function DashboardLayout({ children }: { readonly children: React
             <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-primary">
               <Wallet className="w-3.5 h-3.5 text-primary-foreground" />
             </div>
-            <span className="text-base font-semibold text-foreground tracking-tight">FinanceFlow</span>
+            <span className="text-base font-semibold text-foreground tracking-tight">FinancesFlow</span>
           </div>
         </header>
         <main className="flex-1 overflow-y-auto p-8">

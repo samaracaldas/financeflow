@@ -67,7 +67,7 @@ export default function LoginPage() {
             <Wallet className="w-5 h-5 text-primary-foreground" />
           </div>
           <span className="text-xl font-semibold text-primary-foreground tracking-tight">
-            FinanceFlow
+            FinancesFlow
           </span>
         </div>
 
@@ -96,7 +96,7 @@ export default function LoginPage() {
         </div>
 
         <p className="text-primary-foreground/50 text-xs">
-          FinanceFlow &mdash; Feito para pequenos negócios
+          FinancesFlow &mdash; Feito para pequenos negócios
         </p>
       </div>
 
@@ -108,7 +108,7 @@ export default function LoginPage() {
             <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-primary">
               <Wallet className="w-4 h-4 text-primary-foreground" />
             </div>
-            <span className="text-lg font-semibold text-foreground tracking-tight">FinanceFlow</span>
+            <span className="text-lg font-semibold text-foreground tracking-tight">FinancesFlow</span>
           </div>
 
           <div className="flex flex-col gap-2 text-center lg:text-left">
