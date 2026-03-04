@@ -10,9 +10,13 @@
 
 ## 📸 Preview
 
-| Dashboard | Transactions | Reports |
-|-----------|-------------|---------|
-| KPI cards, bar charts, pie charts and recent transactions | Full CRUD with filters by type, month and account | Monthly/yearly breakdown with CSV export |
+<div align="center">
+  <img width="49%" height="866" alt="image" src="https://github.com/user-attachments/assets/99f57112-3d29-4168-8b2b-39cc55223447" />
+  <img width="49%" height="872" alt="image" src="https://github.com/user-attachments/assets/18f37b73-b5f7-4519-b7c8-7c90db43b2e5" />
+  <img width="49%" height="874" alt="image" src="https://github.com/user-attachments/assets/4d67cade-7f64-447b-8c1f-6072eac855ac" />
+  <img width="49%" height="865" alt="image" src="https://github.com/user-attachments/assets/3c9cc6be-175a-48d8-b7de-191f7d116959" />
+
+</div>
 
 ---
 
