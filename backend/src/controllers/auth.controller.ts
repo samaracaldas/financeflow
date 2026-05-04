@@ -16,6 +16,18 @@ const loginSchema = z.object({
   password: z.string().min(1, 'Senha obrigatória'),
 })
 
+const MOCK_USER = { id: '000000000000000000000001', name: 'Dev User', email: 'dev@mock.com' }
+const MOCK_PASSWORD = 'mock123'
+
+const setAuthCookie = (res: Response, token: string) => {
+  res.cookie('token', token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict',
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+  })
+}
+
 export const register = async (req: Request, res: Response): Promise<void> => {
   try {
     const parsed = registerSchema.safeParse(req.body)
@@ -39,12 +51,7 @@ export const register = async (req: Request, res: Response): Promise<void> => {
 
     const token = generateToken(user._id.toString())
 
-    res.cookie('token', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    })
+    setAuthCookie(res, token)
 
     res.status(201).json({
       user: {
@@ -59,6 +66,13 @@ export const register = async (req: Request, res: Response): Promise<void> => {
 }
 
 export const login = async (req: Request, res: Response): Promise<void> => {
+  if (process.env.MOCK_AUTH === 'true' && req.body.email === MOCK_USER.email && req.body.password === MOCK_PASSWORD) {
+    const token = generateToken(MOCK_USER.id)
+    setAuthCookie(res, token)
+    res.status(200).json({ user: MOCK_USER })
+    return
+  }
+
   try {
     const parsed = loginSchema.safeParse(req.body)
     if (!parsed.success) {
@@ -82,12 +96,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 
     const token = generateToken(user._id.toString())
 
-    res.cookie('token', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    })
+    setAuthCookie(res, token)
 
     res.status(200).json({
       user: {
@@ -107,6 +116,11 @@ export const logout = async (req: Request, res: Response): Promise<void> => {
 }
 
 export const getMe = async (req: AuthRequest, res: Response): Promise<void> => {
+  if (process.env.MOCK_AUTH === 'true' && req.userId === MOCK_USER.id) {
+    res.status(200).json(MOCK_USER)
+    return
+  }
+
   const user = await User.findById(req.userId).select('-password')
   if (!user) {
     res.status(404).json({ message: 'Usuário não encontrado' })
