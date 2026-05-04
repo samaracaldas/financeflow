@@ -126,6 +126,8 @@ MONGO_URI=mongodb+srv://user:password@cluster.mongodb.net/financeflow
 JWT_SECRET=your_secret_key_here
 ```
 
+**Mock login (optional):** If MongoDB is slow to respond, add `MOCK_AUTH=true` to `.env`. This enables a fake user (`dev@mock.com` / `mock123`) that bypasses the database. Real registered users still authenticate normally.
+
 ```bash
 npm run dev
 ```
