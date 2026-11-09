@@ -1,522 +1,269 @@
 'use client'
 
-import { useState, useMemo, useCallback } from 'react'
-import {
-  Download, FileSpreadsheet, FileText, Calendar,
-  TrendingUp, TrendingDown, Scale, ChevronLeft,
-  ChevronRight, Landmark, ArrowUpRight, ArrowDownRight,
-} from 'lucide-react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { useCallback, useMemo, useState } from 'react'
+import { Download } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import {
-  Select, SelectContent, SelectItem,
-  SelectTrigger, SelectValue,
-} from '@/components/ui/select'
-import {
-  Table, TableBody, TableCell,
+  Table, TableBody, TableCell, TableFooter,
   TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
-import { useTransactions, useCategories, useAccounts } from '@/lib/hooks'
-import { ICategory, IAccount } from '@/types'
+import { useTransactions } from '@/lib/hooks'
+import { ITransaction } from '@/types'
+import { MONTH_SHORT, formatDay, monthLabel, pluralize } from '@/lib/format'
+import { FALLBACK_COLOR } from '@/lib/palette'
+import { Money, PageHeader, PeriodPicker, Section, SpendStack } from '@/components/brand'
+import { cn } from '@/lib/utils'
 
-const MONTHS = [
-  { value: '01', label: 'Janeiro' }, { value: '02', label: 'Fevereiro' },
-  { value: '03', label: 'Março' }, { value: '04', label: 'Abril' },
-  { value: '05', label: 'Maio' }, { value: '06', label: 'Junho' },
-  { value: '07', label: 'Julho' }, { value: '08', label: 'Agosto' },
-  { value: '09', label: 'Setembro' }, { value: '10', label: 'Outubro' },
-  { value: '11', label: 'Novembro' }, { value: '12', label: 'Dezembro' },
-]
+const NOW = new Date()
+const CURRENT_YEAR = NOW.getFullYear()
 
-const MONTH_SHORT = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+interface Breakdown { name: string; value: number; color: string; count: number }
 
-const CURRENT_YEAR = new Date().getFullYear()
+function breakdown(list: ITransaction[]): Breakdown[] {
+  const map: Record<string, Breakdown> = {}
+  list.forEach((tx) => {
+    const key = tx.category?._id ?? 'none'
+    map[key] ??= { name: tx.category?.name ?? 'Sem categoria', value: 0, color: tx.category?.color ?? FALLBACK_COLOR, count: 0 }
+    map[key].value += tx.amount
+    map[key].count += 1
+  })
+  return Object.values(map).sort((a, b) => b.value - a.value)
+}
 
-const formatCurrency = (value: number) =>
-  new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value)
+function downloadCSV(rows: ITransaction[], filename: string) {
+  const headers = ['Data', 'Tipo', 'Título', 'Categoria', 'Conta', 'Valor', 'Descrição']
+  const quote = (s: string) => `"${s.replace(/"/g, '""')}"`
+  const lines = rows.map((tx) => [
+    formatDay(tx.date, { day: '2-digit', month: '2-digit', year: 'numeric' }),
+    tx.type === 'income' ? 'Entrada' : 'Saída',
+    quote(tx.title),
+    quote(tx.category?.name ?? ''),
+    quote(tx.account?.name ?? ''),
+    tx.amount.toFixed(2).replace('.', ','),
+    quote(tx.description ?? ''),
+  ].join(';'))
+  const blob = new Blob(['﻿' + [headers.join(';'), ...lines].join('\n')], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
+function CategoryList({ items, total, type }: { items: Breakdown[]; total: number; type: 'income' | 'expense' }) {
+  return (
+    <ul className="flex flex-col">
+      {items.map((item) => (
+        <li key={item.name} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 border-b py-2 text-sm last:border-0">
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="size-2.5 shrink-0 rounded-[2px]" style={{ backgroundColor: item.color }} />
+            <span className="truncate">{item.name}</span>
+            <span className="text-xs text-muted-foreground">{pluralize(item.count, 'transação', 'transações')}</span>
+          </span>
+          <span className="flex items-center gap-3">
+            <span className="money w-10 text-right text-xs text-muted-foreground">{Math.round((item.value / total) * 100)}%</span>
+            <Money value={item.value} type={type} className="w-[120px] text-right" />
+          </span>
+        </li>
+      ))}
+    </ul>
+  )
+}
 
 export default function ReportsPage() {
-  const { transactions } = useTransactions()
-  const { categories } = useCategories()
-  const { accounts } = useAccounts()
+  const { transactions, loading } = useTransactions()
+  const [year, setYear] = useState(CURRENT_YEAR)
+  const [month, setMonth] = useState(String(NOW.getMonth() + 1).padStart(2, '0'))
 
-  const now = new Date()
-  const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR)
-  const [selectedMonth, setSelectedMonth] = useState<string>(
-    String(now.getMonth() + 1).padStart(2, '0')
+  const years = useMemo(() => Array.from(new Set(transactions.map((t) => Number(t.date.substring(0, 4))))), [transactions])
+  const monthKey = `${year}-${month}`
+  const periodLabel = `${monthLabel(month)} de ${year}`
+
+  const monthTx = useMemo(
+    () => transactions.filter((t) => t.date.startsWith(monthKey)).sort((a, b) => a.date.localeCompare(b.date)),
+    [transactions, monthKey]
+  )
+  const yearTx = useMemo(
+    () => transactions.filter((t) => t.date.startsWith(`${year}`)).sort((a, b) => a.date.localeCompare(b.date)),
+    [transactions, year]
   )
 
-  const availableYears = useMemo(() => {
-    const years = new Set(transactions.map((t) => parseInt(t.date.substring(0, 4))))
-    years.add(CURRENT_YEAR)
-    return Array.from(years).sort((a, b) => b - a)
-  }, [transactions])
+  const incomeTx = monthTx.filter((t) => t.type === 'income')
+  const expenseTx = monthTx.filter((t) => t.type === 'expense')
+  const income = incomeTx.reduce((s, t) => s + t.amount, 0)
+  const expense = expenseTx.reduce((s, t) => s + t.amount, 0)
+  const incomeBreakdown = useMemo(() => breakdown(incomeTx), [incomeTx])
+  const expenseBreakdown = useMemo(() => breakdown(expenseTx), [expenseTx])
 
-  const monthKey = `${selectedYear}-${selectedMonth}`
-  const monthLabel = `${MONTHS.find((m) => m.value === selectedMonth)?.label} de ${selectedYear}`
-
-  const filteredTransactions = useMemo(() => {
-    return [...transactions]
-      .filter((t) => t.date.startsWith(monthKey))
-      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-  }, [transactions, monthKey])
-
-  const stats = useMemo(() => {
-    const totalIncome = filteredTransactions.filter((t) => t.type === 'income').reduce((sum, t) => sum + t.amount, 0)
-    const totalExpense = filteredTransactions.filter((t) => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0)
-    return { totalIncome, totalExpense, balance: totalIncome - totalExpense }
-  }, [filteredTransactions])
-
-  const categoryBreakdown = useMemo(() => {
-    const income: Record<string, { name: string; total: number; color: string; count: number }> = {}
-    const expense: Record<string, { name: string; total: number; color: string; count: number }> = {}
-
-    filteredTransactions.forEach((tx) => {
-      const cat = tx.category as (ICategory & { color?: string }) | undefined
-      const name = cat?.name ?? 'Sem categoria'
-      const color = cat?.color ?? '#94a3b8'
-      const target = tx.type === 'income' ? income : expense
-      const key = cat?._id ?? 'none'
-
-      if (!target[key]) target[key] = { name, total: 0, color, count: 0 }
-      target[key].total += tx.amount
-      target[key].count += 1
+  const byAccount = useMemo(() => {
+    const map: Record<string, { name: string; color: string; income: number; expense: number; count: number }> = {}
+    monthTx.forEach((tx) => {
+      const key = tx.account?._id ?? 'none'
+      map[key] ??= { name: tx.account?.name ?? 'Sem conta', color: tx.account?.color ?? FALLBACK_COLOR, income: 0, expense: 0, count: 0 }
+      if (tx.type === 'income') map[key].income += tx.amount
+      else map[key].expense += tx.amount
+      map[key].count += 1
     })
+    return Object.values(map).sort((a, b) => (b.income + b.expense) - (a.income + a.expense))
+  }, [monthTx])
 
-    return {
-      income: Object.values(income).sort((a, b) => b.total - a.total),
-      expense: Object.values(expense).sort((a, b) => b.total - a.total),
-    }
-  }, [filteredTransactions])
+  const yearly = useMemo(() => MONTH_SHORT.map((label, i) => {
+    const mk = `${year}-${String(i + 1).padStart(2, '0')}`
+    const txs = yearTx.filter((t) => t.date.startsWith(mk))
+    const inc = txs.filter((t) => t.type === 'income').reduce((s, t) => s + t.amount, 0)
+    const exp = txs.filter((t) => t.type === 'expense').reduce((s, t) => s + t.amount, 0)
+    return { key: String(i + 1).padStart(2, '0'), label, income: inc, expense: exp, balance: inc - exp }
+  }), [yearTx, year])
 
-  const accountBreakdown = useMemo(() => {
-    const breakdown: Record<string, { name: string; color: string; income: number; expense: number; count: number }> = {}
+  const yearTotals = yearly.reduce((a, m) => ({ income: a.income + m.income, expense: a.expense + m.expense, balance: a.balance + m.balance }), { income: 0, expense: 0, balance: 0 })
 
-    filteredTransactions.forEach((tx) => {
-      const acc = tx.account as (IAccount & { color?: string }) | undefined
-      const key = acc?._id ?? 'none'
-      const name = acc?.name ?? 'Sem conta'
-      const color = acc?.color ?? '#94a3b8'
-
-      if (!breakdown[key]) breakdown[key] = { name, color, income: 0, expense: 0, count: 0 }
-      if (tx.type === 'income') breakdown[key].income += tx.amount
-      else breakdown[key].expense += tx.amount
-      breakdown[key].count += 1
-    })
-
-    return Object.values(breakdown).sort((a, b) => (b.income + b.expense) - (a.income + a.expense))
-  }, [filteredTransactions])
-
-  const yearlyOverview = useMemo(() => {
-    return MONTH_SHORT.map((label, i) => {
-      const mk = `${selectedYear}-${String(i + 1).padStart(2, '0')}`
-      const monthTx = transactions.filter((t) => t.date.startsWith(mk))
-      const income = monthTx.filter((t) => t.type === 'income').reduce((s, t) => s + t.amount, 0)
-      const expense = monthTx.filter((t) => t.type === 'expense').reduce((s, t) => s + t.amount, 0)
-      return { label, income, expense, balance: income - expense }
-    })
-  }, [transactions, selectedYear])
-
-  const yearTotals = useMemo(() =>
-    yearlyOverview.reduce(
-      (acc, m) => ({ income: acc.income + m.income, expense: acc.expense + m.expense, balance: acc.balance + m.balance }),
-      { income: 0, expense: 0, balance: 0 }
-    )
-  , [yearlyOverview])
-
-  const exportCSV = useCallback(() => {
-    const headers = ['Data', 'Tipo', 'Título', 'Categoria', 'Conta', 'Valor', 'Descrição']
-    const rows = filteredTransactions.map((tx) => {
-      const cat = tx.category as ICategory | undefined
-      const acc = tx.account as IAccount | undefined
-      return [
-        new Date(tx.date).toLocaleDateString('pt-BR'),
-        tx.type === 'income' ? 'Receita' : 'Despesa',
-        `"${tx.title.replace(/"/g, '""')}"`,
-        cat?.name ?? '',
-        acc?.name ?? '',
-        tx.amount.toFixed(2).replace('.', ','),
-        `"${(tx.description || '').replace(/"/g, '""')}"`,
-      ]
-    })
-
-    const bom = '\uFEFF'
-    const csvContent = bom + [headers.join(';'), ...rows.map((r) => r.join(';'))].join('\n')
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `financeflow-${monthKey}.csv`
-    link.click()
-    URL.revokeObjectURL(url)
-  }, [filteredTransactions, monthKey])
-
-  const exportYearCSV = useCallback(() => {
-    const headers = ['Data', 'Tipo', 'Título', 'Categoria', 'Conta', 'Valor', 'Descrição']
-    const yearTx = [...transactions]
-      .filter((t) => t.date.startsWith(`${selectedYear}`))
-      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-
-    const rows = yearTx.map((tx) => {
-      const cat = tx.category as ICategory | undefined
-      const acc = tx.account as IAccount | undefined
-      return [
-        new Date(tx.date).toLocaleDateString('pt-BR'),
-        tx.type === 'income' ? 'Receita' : 'Despesa',
-        `"${tx.title.replace(/"/g, '""')}"`,
-        cat?.name ?? '',
-        acc?.name ?? '',
-        tx.amount.toFixed(2).replace('.', ','),
-        `"${(tx.description || '').replace(/"/g, '""')}"`,
-      ]
-    })
-
-    const bom = '\uFEFF'
-    const csvContent = bom + [headers.join(';'), ...rows.map((r) => r.join(';'))].join('\n')
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `financeflow-${selectedYear}.csv`
-    link.click()
-    URL.revokeObjectURL(url)
-  }, [transactions, selectedYear])
+  const exportMonth = useCallback(() => downloadCSV(monthTx, `financesflow-${monthKey}.csv`), [monthTx, monthKey])
+  const exportYear = useCallback(() => downloadCSV(yearTx, `financesflow-${year}.csv`), [yearTx, year])
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
-        <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-bold text-foreground tracking-tight">Relatórios</h1>
-          <p className="text-sm text-muted-foreground flex items-center gap-1.5">
-            <FileText className="w-3.5 h-3.5" />
-            Análise detalhada e exportação de dados
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1">
-            <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => setSelectedYear((y) => y - 1)}>
-              <ChevronLeft className="w-4 h-4" />
-            </Button>
-            <Select value={String(selectedYear)} onValueChange={(v) => setSelectedYear(Number(v))}>
-              <SelectTrigger className="w-24 h-9"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {availableYears.map((y) => (
-                  <SelectItem key={y} value={String(y)}>{y}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => setSelectedYear((y) => y + 1)}>
-              <ChevronRight className="w-4 h-4" />
-            </Button>
+    <div className="flex flex-col gap-10">
+      <PageHeader title="Relatórios" description={`Fechamento de ${periodLabel.toLowerCase()} e visão do ano.`}>
+        <PeriodPicker year={year} years={years} onYear={setYear} month={month} onMonth={setMonth} allowAllMonths={false} />
+      </PageHeader>
+
+      {/* Fechamento do mês */}
+      <section aria-label={`Resumo de ${periodLabel}`} className="grid overflow-hidden rounded-xl border bg-card sm:grid-cols-3">
+        {[
+          { label: 'Entradas', node: <Money value={income} type="income" /> },
+          { label: 'Saídas', node: <Money value={expense} type="expense" /> },
+          { label: 'Saldo do mês', node: <Money value={income - expense} className={income - expense < 0 ? 'text-destructive' : ''} /> },
+        ].map((s, i) => (
+          <div key={s.label} className={cn('flex flex-col gap-1 px-5 py-4', i > 0 && 'border-t sm:border-l sm:border-t-0')}>
+            <span className="text-xs text-muted-foreground">{s.label}</span>
+            <span className="text-xl font-medium">{s.node}</span>
           </div>
-          <Select value={selectedMonth} onValueChange={setSelectedMonth}>
-            <SelectTrigger className="w-36 h-9"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {MONTHS.map((m) => (
-                <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        ))}
+      </section>
+
+      <div className="grid gap-10 lg:grid-cols-2">
+        <Section title="De onde veio o dinheiro" aside={pluralize(incomeTx.length, 'entrada', 'entradas')}>
+          <SpendStack items={incomeBreakdown} total={income} empty="Nenhuma entrada neste mês." legend={false} />
+          {incomeBreakdown.length > 0 && <CategoryList items={incomeBreakdown} total={income} type="income" />}
+        </Section>
+        <Section title="Para onde foi o dinheiro" aside={pluralize(expenseTx.length, 'saída', 'saídas')}>
+          <SpendStack items={expenseBreakdown} total={expense} empty="Nenhuma saída neste mês." legend={false} />
+          {expenseBreakdown.length > 0 && <CategoryList items={expenseBreakdown} total={expense} type="expense" />}
+        </Section>
       </div>
 
-      {/* KPIs */}
-      <div>
-        <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-          Resumo de {monthLabel}
-        </h2>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground font-medium">Receitas</p>
-                  <p className="text-2xl font-bold text-foreground mt-1">{formatCurrency(stats.totalIncome)}</p>
-                </div>
-                <div className="flex items-center justify-center w-10 h-10 rounded-full bg-green-100">
-                  <TrendingUp className="w-5 h-5 text-green-600" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground font-medium">Despesas</p>
-                  <p className="text-2xl font-bold text-foreground mt-1">{formatCurrency(stats.totalExpense)}</p>
-                </div>
-                <div className="flex items-center justify-center w-10 h-10 rounded-full bg-red-100">
-                  <TrendingDown className="w-5 h-5 text-red-500" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground font-medium">Saldo</p>
-                  <p className={`text-2xl font-bold mt-1 ${stats.balance >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-                    {formatCurrency(stats.balance)}
-                  </p>
-                </div>
-                <div className={`flex items-center justify-center w-10 h-10 rounded-full ${stats.balance >= 0 ? 'bg-green-100' : 'bg-red-100'}`}>
-                  <Scale className={`w-5 h-5 ${stats.balance >= 0 ? 'text-green-600' : 'text-red-500'}`} />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-
-      {/* Category Breakdown */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-3">
-            <CardTitle className="text-base font-semibold flex items-center gap-2">
-              <ArrowUpRight className="w-4 h-4 text-green-600" />
-              Receitas por Categoria
-            </CardTitle>
-            <Badge variant="secondary">{formatCurrency(stats.totalIncome)}</Badge>
-          </CardHeader>
-          <CardContent>
-            {categoryBreakdown.income.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-4">Nenhuma receita neste período</p>
-            ) : (
-              <div className="flex flex-col gap-3">
-                {categoryBreakdown.income.map((item) => (
-                  <div key={item.name} className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: item.color }} />
-                      <span className="text-sm text-foreground">{item.name}</span>
-                      <span className="text-xs text-muted-foreground">({item.count})</span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <div className="w-20 h-1.5 rounded-full bg-muted overflow-hidden">
-                        <div className="h-full rounded-full" style={{ width: `${(item.total / stats.totalIncome) * 100}%`, backgroundColor: item.color }} />
-                      </div>
-                      <span className="text-sm font-medium text-foreground w-28 text-right">{formatCurrency(item.total)}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-3">
-            <CardTitle className="text-base font-semibold flex items-center gap-2">
-              <ArrowDownRight className="w-4 h-4 text-red-500" />
-              Despesas por Categoria
-            </CardTitle>
-            <Badge variant="secondary">{formatCurrency(stats.totalExpense)}</Badge>
-          </CardHeader>
-          <CardContent>
-            {categoryBreakdown.expense.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-4">Nenhuma despesa neste período</p>
-            ) : (
-              <div className="flex flex-col gap-3">
-                {categoryBreakdown.expense.map((item) => (
-                  <div key={item.name} className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: item.color }} />
-                      <span className="text-sm text-foreground">{item.name}</span>
-                      <span className="text-xs text-muted-foreground">({item.count})</span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <div className="w-20 h-1.5 rounded-full bg-muted overflow-hidden">
-                        <div className="h-full rounded-full" style={{ width: `${(item.total / stats.totalExpense) * 100}%`, backgroundColor: item.color }} />
-                      </div>
-                      <span className="text-sm font-medium text-foreground w-28 text-right">{formatCurrency(item.total)}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Account Breakdown */}
-      {accountBreakdown.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base font-semibold flex items-center gap-2">
-              <Landmark className="w-4 h-4" />
-              Movimentação por Conta - {monthLabel}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {accountBreakdown.map((item) => (
-                <div key={item.name} className="flex flex-col gap-2 p-3 rounded-lg border border-border">
-                  <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }} />
-                    <span className="text-sm font-medium text-foreground">{item.name}</span>
-                    <Badge variant="secondary" className="ml-auto text-[10px]">{item.count} tx</Badge>
-                  </div>
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-muted-foreground">Entradas</span>
-                    <span className="text-green-600 font-medium">{formatCurrency(item.income)}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-muted-foreground">Saídas</span>
-                    <span className="text-red-500 font-medium">{formatCurrency(item.expense)}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Yearly Overview */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base font-semibold flex items-center gap-2">
-            <Calendar className="w-4 h-4" />
-            Resumo Anual - {selectedYear}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
+      {byAccount.length > 0 && (
+        <Section title="Movimento por conta">
+          <div className="overflow-x-auto rounded-xl border bg-card">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Mês</TableHead>
-                  <TableHead className="text-right">Receitas</TableHead>
-                  <TableHead className="text-right">Despesas</TableHead>
-                  <TableHead className="text-right">Saldo</TableHead>
+                  <TableHead className="pl-5">Conta</TableHead>
+                  <TableHead className="text-right">Transações</TableHead>
+                  <TableHead className="text-right">Entradas</TableHead>
+                  <TableHead className="text-right">Saídas</TableHead>
+                  <TableHead className="pr-5 text-right">Resultado</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {yearlyOverview.map((m) => (
-                  <TableRow key={m.label}>
-                    <TableCell className="font-medium">{m.label}</TableCell>
-                    <TableCell className="text-right text-green-600">{formatCurrency(m.income)}</TableCell>
-                    <TableCell className="text-right text-red-500">{formatCurrency(m.expense)}</TableCell>
-                    <TableCell className={`text-right font-semibold ${m.balance >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-                      {formatCurrency(m.balance)}
+                {byAccount.map((a) => (
+                  <TableRow key={a.name}>
+                    <TableCell className="pl-5">
+                      <span className="flex items-center gap-2"><span className="h-4 w-1.5 rounded-[2px]" style={{ backgroundColor: a.color }} />{a.name}</span>
                     </TableCell>
+                    <TableCell className="money text-right">{a.count}</TableCell>
+                    <TableCell className="text-right"><Money value={a.income} symbol={false} type="income" /></TableCell>
+                    <TableCell className="text-right"><Money value={a.expense} symbol={false} type="expense" /></TableCell>
+                    <TableCell className="pr-5 text-right"><Money value={a.income - a.expense} symbol={false} /></TableCell>
                   </TableRow>
                 ))}
-                <TableRow className="border-t-2 border-foreground/20">
-                  <TableCell className="font-bold">Total</TableCell>
-                  <TableCell className="text-right font-bold text-green-600">{formatCurrency(yearTotals.income)}</TableCell>
-                  <TableCell className="text-right font-bold text-red-500">{formatCurrency(yearTotals.expense)}</TableCell>
-                  <TableCell className={`text-right font-bold ${yearTotals.balance >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-                    {formatCurrency(yearTotals.balance)}
-                  </TableCell>
-                </TableRow>
               </TableBody>
             </Table>
           </div>
-        </CardContent>
-      </Card>
+        </Section>
+      )}
 
-      {/* Export */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base font-semibold flex items-center gap-2">
-            <Download className="w-4 h-4" />
-            Exportar Dados
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="flex flex-col gap-3 p-4 rounded-lg border border-border">
-              <div className="flex items-center gap-2">
-                <FileSpreadsheet className="w-5 h-5 text-green-600" />
-                <div>
-                  <p className="text-sm font-medium text-foreground">Exportar Mensal (CSV)</p>
-                  <p className="text-xs text-muted-foreground">{monthLabel} — {filteredTransactions.length} transação(ões)</p>
-                </div>
-              </div>
-              <Button variant="outline" className="gap-2" onClick={exportCSV} disabled={filteredTransactions.length === 0}>
-                <Download className="w-4 h-4" />
-                Baixar CSV do mês
-              </Button>
-            </div>
-            <div className="flex flex-col gap-3 p-4 rounded-lg border border-border">
-              <div className="flex items-center gap-2">
-                <FileSpreadsheet className="w-5 h-5 text-primary" />
-                <div>
-                  <p className="text-sm font-medium text-foreground">Exportar Anual (CSV)</p>
-                  <p className="text-xs text-muted-foreground">
-                    {selectedYear} — {transactions.filter((t) => t.date.startsWith(`${selectedYear}`)).length} transação(ões)
-                  </p>
-                </div>
-              </div>
-              <Button variant="outline" className="gap-2" onClick={exportYearCSV} disabled={transactions.filter((t) => t.date.startsWith(`${selectedYear}`)).length === 0}>
-                <Download className="w-4 h-4" />
-                Baixar CSV do ano
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      <Section title={`Mês a mês em ${year}`}>
+        <div className="overflow-x-auto rounded-xl border bg-card">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="pl-5">Mês</TableHead>
+                <TableHead className="text-right">Entradas</TableHead>
+                <TableHead className="text-right">Saídas</TableHead>
+                <TableHead className="pr-5 text-right">Saldo</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {yearly.map((m) => (
+                <TableRow key={m.label} className={cn(m.key === month && 'bg-accent/60')}>
+                  <TableCell className="pl-5 font-medium">
+                    <button onClick={() => setMonth(m.key)} className="rounded outline-none hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50" aria-label={`Ver ${monthLabel(m.key)}`}>
+                      {m.label}
+                    </button>
+                  </TableCell>
+                  <TableCell className="text-right"><Money value={m.income} symbol={false} className="text-muted-foreground" /></TableCell>
+                  <TableCell className="text-right"><Money value={m.expense} symbol={false} className="text-muted-foreground" /></TableCell>
+                  <TableCell className="pr-5 text-right"><Money value={m.balance} symbol={false} className={m.balance < 0 ? 'text-destructive' : ''} /></TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+            <TableFooter>
+              <TableRow>
+                <TableCell className="pl-5 font-semibold">Total do ano</TableCell>
+                <TableCell className="text-right"><Money value={yearTotals.income} symbol={false} type="income" /></TableCell>
+                <TableCell className="text-right"><Money value={yearTotals.expense} symbol={false} type="expense" /></TableCell>
+                <TableCell className="pr-5 text-right font-semibold"><Money value={yearTotals.balance} /></TableCell>
+              </TableRow>
+            </TableFooter>
+          </Table>
+        </div>
+      </Section>
 
-      {/* Monthly Detail Table */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base font-semibold">Detalhamento — {monthLabel}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {filteredTransactions.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-8">Nenhuma transação neste período.</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Data</TableHead>
-                    <TableHead>Título</TableHead>
-                    <TableHead>Categoria</TableHead>
-                    <TableHead>Conta</TableHead>
-                    <TableHead className="text-right">Valor</TableHead>
+      <Section title={`Transações de ${periodLabel.toLowerCase()}`} aside={pluralize(monthTx.length, 'transação', 'transações')}>
+        {loading ? null : monthTx.length === 0 ? (
+          <p className="rounded-xl border border-dashed px-5 py-10 text-center text-sm text-muted-foreground">Nenhuma transação neste mês.</p>
+        ) : (
+          <div className="overflow-x-auto rounded-xl border bg-card">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="pl-5">Data</TableHead>
+                  <TableHead>Descrição</TableHead>
+                  <TableHead>Categoria</TableHead>
+                  <TableHead>Conta</TableHead>
+                  <TableHead className="pr-5 text-right">Valor</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {monthTx.map((tx) => (
+                  <TableRow key={tx._id}>
+                    <TableCell className="money pl-5 text-xs text-muted-foreground">{formatDay(tx.date)}</TableCell>
+                    <TableCell className="max-w-[260px] truncate font-medium">{tx.title}</TableCell>
+                    <TableCell>
+                      <span className="flex items-center gap-1.5 text-xs"><span className="size-2 rounded-[2px]" style={{ backgroundColor: tx.category?.color ?? FALLBACK_COLOR }} />{tx.category?.name ?? 'Sem categoria'}</span>
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{tx.account?.name ?? '—'}</TableCell>
+                    <TableCell className="pr-5 text-right"><Money value={tx.amount} type={tx.type} symbol={false} /></TableCell>
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredTransactions.map((tx) => {
-                    const cat = tx.category as (ICategory & { color?: string }) | undefined
-                    const acc = tx.account as (IAccount & { color?: string }) | undefined
-                    return (
-                      <TableRow key={tx._id}>
-                        <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
-                          {new Date(tx.date).toLocaleDateString('pt-BR')}
-                        </TableCell>
-                        <TableCell className="font-medium text-sm max-w-[200px] truncate">{tx.title}</TableCell>
-                        <TableCell>
-                          {cat && (
-                            <div className="flex items-center gap-1.5">
-                              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: cat.color ?? '#94a3b8' }} />
-                              <span className="text-xs">{cat.name}</span>
-                            </div>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {acc && (
-                            <div className="flex items-center gap-1.5">
-                              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: acc.color ?? '#94a3b8' }} />
-                              <span className="text-xs">{acc.name}</span>
-                            </div>
-                          )}
-                        </TableCell>
-                        <TableCell className={`text-right text-sm font-medium whitespace-nowrap ${tx.type === 'income' ? 'text-green-600' : 'text-red-500'}`}>
-                          {tx.type === 'income' ? '+' : '-'} {formatCurrency(tx.amount)}
-                        </TableCell>
-                      </TableRow>
-                    )
-                  })}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </Section>
+
+      <Section title="Exportar planilha">
+        <div className="flex flex-col gap-3 rounded-xl border bg-card px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-muted-foreground">
+            CSV separado por ponto e vírgula, abre direto no Excel e no Google Planilhas.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={exportMonth} disabled={monthTx.length === 0}><Download />{monthLabel(month)} ({monthTx.length})</Button>
+            <Button variant="outline" onClick={exportYear} disabled={yearTx.length === 0}><Download />Ano de {year} ({yearTx.length})</Button>
+          </div>
+        </div>
+      </Section>
     </div>
   )
 }

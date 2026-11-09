@@ -1,29 +1,20 @@
 'use client'
 
-import { useState } from 'react'
-import { Plus, Pencil, Trash2, Tag } from 'lucide-react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { useMemo, useState } from 'react'
+import { Plus, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Badge } from '@/components/ui/badge'
 import { Label } from '@/components/ui/label'
 import {
   Dialog, DialogContent, DialogHeader,
   DialogTitle, DialogFooter, DialogDescription,
 } from '@/components/ui/dialog'
-import {
-  Select, SelectContent, SelectItem,
-  SelectTrigger, SelectValue,
-} from '@/components/ui/select'
-import { useCategories } from '@/lib/hooks'
+import { useCategories, useTransactions } from '@/lib/hooks'
 import { ICategory } from '@/types'
-import api from '@/lib/api'
-
-const COLOR_OPTIONS = [
-  '#2ba84a', '#17a2b8', '#6f42c1', '#dc3545',
-  '#e83e8c', '#fd7e14', '#6c757d', '#795548',
-  '#007bff', '#28a745', '#ffc107', '#20c997',
-]
+import api, { getErrorMessage } from '@/lib/api'
+import { pluralize } from '@/lib/format'
+import { FALLBACK_COLOR, MONEY_COLORS } from '@/lib/palette'
+import { ColorPicker, ErrorNote, Money, PageHeader, TypeToggle } from '@/components/brand'
 
 interface CategoryFormData {
   name: string
@@ -31,201 +22,175 @@ interface CategoryFormData {
   color: string
 }
 
-const EMPTY_FORM: CategoryFormData = {
-  name: '',
-  type: 'income',
-  color: COLOR_OPTIONS[0],
-}
+const CURRENT_YEAR = new Date().getFullYear()
 
 export default function CategoriesPage() {
   const { categories, loading, refetch } = useCategories()
+  const { transactions } = useTransactions()
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [form, setForm] = useState<CategoryFormData>(EMPTY_FORM)
-  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
+  const [form, setForm] = useState<CategoryFormData>({ name: '', type: 'expense', color: MONEY_COLORS[0].value })
+  const [formError, setFormError] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState<ICategory | null>(null)
   const [error, setError] = useState('')
 
-  const incomeCategories = categories.filter((c) => (c as ICategory & { type?: string }).type === 'income')
-  const expenseCategories = categories.filter((c) => (c as ICategory & { type?: string }).type === 'expense')
-  const uncategorized = categories.filter((c) => !(c as ICategory & { type?: string }).type)
+  // Total e quantidade no ano corrente, por categoria
+  const usage = useMemo(() => {
+    const map: Record<string, { total: number; count: number }> = {}
+    transactions.filter((t) => t.date.startsWith(`${CURRENT_YEAR}`)).forEach((t) => {
+      const id = t.category?._id
+      if (!id) return
+      map[id] ??= { total: 0, count: 0 }
+      map[id].total += t.amount
+      map[id].count += 1
+    })
+    return map
+  }, [transactions])
 
-  const openNew = () => {
+  const groups = useMemo(() => {
+    const sort = (list: ICategory[]) => [...list].sort((a, b) => (usage[b._id]?.total ?? 0) - (usage[a._id]?.total ?? 0))
+    return [
+      { type: 'income' as const, title: 'Entradas', hint: 'De onde vem o dinheiro', items: sort(categories.filter((c) => c.type === 'income')) },
+      { type: 'expense' as const, title: 'Saídas', hint: 'Para onde vai o dinheiro', items: sort(categories.filter((c) => c.type === 'expense')) },
+    ]
+  }, [categories, usage])
+
+  const openNew = (type: 'income' | 'expense' = 'expense') => {
+    const used = new Set(categories.map((c) => c.color.toLowerCase()))
+    const nextColor = MONEY_COLORS.find((c) => !used.has(c.value))?.value ?? MONEY_COLORS[0].value
     setEditingId(null)
-    setForm(EMPTY_FORM)
+    setForm({ name: '', type, color: nextColor })
+    setFormError('')
     setIsDialogOpen(true)
   }
 
   const openEdit = (cat: ICategory) => {
     setEditingId(cat._id)
-    setForm({
-      name: cat.name,
-      type: (cat as ICategory & { type?: 'income' | 'expense' }).type ?? 'income',
-      color: (cat as ICategory & { color?: string }).color ?? COLOR_OPTIONS[0],
-    })
+    setForm({ name: cat.name, type: cat.type, color: cat.color ?? FALLBACK_COLOR })
+    setFormError('')
     setIsDialogOpen(true)
   }
 
-  const handleSave = async () => {
-    if (!form.name.trim()) return
-    setError('')
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (form.name.trim().length < 2) return setFormError('Dê um nome com pelo menos 2 letras.')
+    setFormError('')
     try {
-      if (editingId) {
-        await api.put(`/categories/${editingId}`, form)
-      } else {
-        await api.post('/categories', form)
-      }
+      const payload = { ...form, name: form.name.trim() }
+      if (editingId) await api.put(`/categories/${editingId}`, payload)
+      else await api.post('/categories', payload)
       setIsDialogOpen(false)
       setEditingId(null)
-      setForm(EMPTY_FORM)
       refetch()
-    } catch {
-      setError('Erro ao salvar categoria')
+    } catch (err) {
+      setFormError(getErrorMessage(err, 'Não foi possível salvar a categoria.'))
     }
   }
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async () => {
+    if (!deleteTarget) return
     try {
-      await api.delete(`/categories/${id}`)
-      setDeleteConfirm(null)
+      await api.delete(`/categories/${deleteTarget._id}`)
+      setDeleteTarget(null)
       refetch()
-    } catch {
-      setError('Erro ao deletar categoria')
+    } catch (err) {
+      setDeleteTarget(null)
+      setError(getErrorMessage(err, 'Não foi possível excluir a categoria.'))
     }
   }
-
-  const renderCategoryList = (cats: ICategory[], title: string) => (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base font-semibold flex items-center gap-2">
-          <Tag className="w-4 h-4" />
-          {title}
-          <Badge variant="secondary" className="ml-auto">{cats.length}</Badge>
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        {cats.length === 0 ? (
-          <p className="text-sm text-muted-foreground text-center py-4">Nenhuma categoria cadastrada.</p>
-        ) : (
-          <div className="flex flex-col gap-2">
-            {cats.map((cat) => (
-              <div key={cat._id} className="flex items-center justify-between py-2.5 px-3 rounded-lg border border-border hover:bg-accent/50 transition-colors">
-                <div className="flex items-center gap-3">
-                  <div
-                    className="w-3 h-3 rounded-full flex-shrink-0"
-                    style={{ backgroundColor: (cat as ICategory & { color?: string }).color ?? '#6c757d' }}
-                  />
-                  <p className="text-sm font-medium text-foreground">{cat.name}</p>
-                </div>
-                <div className="flex items-center gap-1">
-                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(cat)}>
-                    <Pencil className="w-3.5 h-3.5" />
-                  </Button>
-                  <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => setDeleteConfirm(cat._id)}>
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  )
-
-  if (loading) return <p className="text-muted-foreground">Carregando...</p>
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground tracking-tight">Categorias</h1>
-          <p className="text-sm text-muted-foreground">Organize suas transações com categorias personalizadas</p>
-        </div>
-        <Button onClick={openNew} className="gap-2">
-          <Plus className="w-4 h-4" />
-          Nova Categoria
-        </Button>
-      </div>
+    <div className="flex flex-col gap-8">
+      <PageHeader title="Categorias" description={`Agrupe as transações para saber o que mais vende e o que mais pesa. Totais de ${CURRENT_YEAR}.`}>
+        <Button onClick={() => openNew()}><Plus />Nova categoria</Button>
+      </PageHeader>
 
-      {error && (
-        <div className="bg-destructive/10 border border-destructive/20 text-destructive px-4 py-3 rounded-lg text-sm">
-          {error}
+      {error && <ErrorNote>{error}</ErrorNote>}
+
+      {loading ? null : (
+        <div className="grid gap-8 lg:grid-cols-2">
+          {groups.map((group) => (
+            <section key={group.type} className="flex min-w-0 flex-col gap-3">
+              <div className="flex items-baseline justify-between gap-3">
+                <h2 className="text-lg font-semibold">
+                  {group.title} <span className="text-sm font-normal text-muted-foreground">· {group.hint}</span>
+                </h2>
+                <span className="text-xs text-muted-foreground">{pluralize(group.items.length, 'categoria', 'categorias')}</span>
+              </div>
+
+              {group.items.length === 0 ? (
+                <div className="rounded-xl border border-dashed px-5 py-8 text-center text-sm text-muted-foreground">
+                  Nenhuma categoria de {group.title.toLowerCase()}.{' '}
+                  <button onClick={() => openNew(group.type)} className="font-medium text-foreground underline underline-offset-4">Criar uma</button>
+                </div>
+              ) : (
+                <ul className="overflow-hidden rounded-xl border bg-card">
+                  {group.items.map((cat) => {
+                    const u = usage[cat._id]
+                    return (
+                      <li key={cat._id} className="group grid grid-cols-[6px_minmax(0,1fr)_auto] items-center gap-3 border-b px-4 py-3 last:border-b-0 sm:px-5">
+                        <span className="h-8 w-1.5 rounded-[2px]" style={{ backgroundColor: cat.color ?? FALLBACK_COLOR }} />
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium">{cat.name}</p>
+                          <p className="text-xs text-muted-foreground">{pluralize(u?.count ?? 0, 'transação', 'transações')}</p>
+                        </div>
+                        <div className="flex items-center gap-1 sm:gap-2">
+                          <Money value={u?.total ?? 0} type={cat.type} className="text-sm" />
+                          <div className="flex opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
+                            <Button variant="ghost" size="icon" className="size-8 text-muted-foreground" onClick={() => openEdit(cat)} aria-label={`Editar ${cat.name}`}>
+                              <Pencil className="size-3.5" />
+                            </Button>
+                            <Button variant="ghost" size="icon" className="size-8 text-muted-foreground hover:text-destructive" onClick={() => setDeleteTarget(cat)} aria-label={`Excluir ${cat.name}`}>
+                              <Trash2 className="size-3.5" />
+                            </Button>
+                          </div>
+                        </div>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+            </section>
+          ))}
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {renderCategoryList(incomeCategories, 'Receitas')}
-        {renderCategoryList(expenseCategories, 'Despesas')}
-      </div>
-
-      {uncategorized.length > 0 && renderCategoryList(uncategorized, 'Sem tipo')}
-
-      {/* Add/Edit Dialog */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>{editingId ? 'Editar Categoria' : 'Nova Categoria'}</DialogTitle>
-            <DialogDescription>
-              {editingId ? 'Atualize os dados da categoria.' : 'Crie uma nova categoria para suas transações.'}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex flex-col gap-4 py-2">
-            <div className="flex flex-col gap-2">
-              <Label>Nome</Label>
-              <Input
-                placeholder="Ex: Marketing"
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-              />
+          <form onSubmit={handleSave} className="flex flex-col gap-5" noValidate>
+            <DialogHeader>
+              <DialogTitle>{editingId ? 'Editar categoria' : 'Nova categoria'}</DialogTitle>
+              <DialogDescription>
+                {editingId ? 'Altere o que precisar e salve.' : 'Ex.: Vendas no balcão, Fornecedores, Aluguel.'}
+              </DialogDescription>
+            </DialogHeader>
+            <TypeToggle value={form.type} onChange={(type) => setForm({ ...form, type })} />
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="cat-name">Nome</Label>
+              <Input id="cat-name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
             </div>
-            <div className="flex flex-col gap-2">
-              <Label>Tipo</Label>
-              <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v as 'income' | 'expense' })}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="income">Receita</SelectItem>
-                  <SelectItem value="expense">Despesa</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-1.5">
               <Label>Cor</Label>
-              <div className="flex flex-wrap gap-2">
-                {COLOR_OPTIONS.map((color) => (
-                  <button
-                    key={color}
-                    type="button"
-                    className={`w-8 h-8 rounded-full border-2 transition-all ${form.color === color ? 'border-foreground scale-110' : 'border-transparent hover:border-muted-foreground'}`}
-                    style={{ backgroundColor: color }}
-                    onClick={() => setForm({ ...form, color })}
-                  >
-                    <span className="sr-only">Cor {color}</span>
-                  </button>
-                ))}
-              </div>
+              <ColorPicker value={form.color} onChange={(color) => setForm({ ...form, color })} />
             </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancelar</Button>
-            <Button onClick={handleSave}>{editingId ? 'Salvar' : 'Adicionar'}</Button>
-          </DialogFooter>
+            {formError && <ErrorNote>{formError}</ErrorNote>}
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>Cancelar</Button>
+              <Button type="submit">{editingId ? 'Salvar alterações' : 'Criar categoria'}</Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirmation Dialog */}
-      <Dialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>Excluir categoria?</DialogTitle>
-            <DialogDescription>
-              Esta ação não pode ser desfeita.
-            </DialogDescription>
+            <DialogTitle>Excluir a categoria “{deleteTarget?.name}”?</DialogTitle>
+            <DialogDescription>As transações dela continuam registradas, mas aparecem como “Sem categoria”. Não dá para desfazer.</DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteConfirm(null)}>Cancelar</Button>
-            <Button variant="destructive" onClick={() => deleteConfirm && handleDelete(deleteConfirm)}>Excluir</Button>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancelar</Button>
+            <Button variant="destructive" onClick={handleDelete}>Excluir categoria</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

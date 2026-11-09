@@ -1,9 +1,10 @@
-import { Request, Response } from 'express'
+import { CookieOptions, Request, Response } from 'express'
 import { AuthRequest } from '../middlewares/auth.middleware'
 import bcrypt from 'bcryptjs'
 import { z } from 'zod'
 import User from '../models/User'
 import generateToken from '../utils/generateToken'
+import { getDemoUser } from '../utils/demoAccount'
 
 const registerSchema = z.object({
   name: z.string().min(2, 'Nome deve ter pelo menos 2 caracteres'),
@@ -19,13 +20,26 @@ const loginSchema = z.object({
 const MOCK_USER = { id: '000000000000000000000001', name: 'Dev User', email: 'dev@mock.com' }
 const MOCK_PASSWORD = 'mock123'
 
-const setAuthCookie = (res: Response, token: string) => {
-  res.cookie('token', token, {
+const isProduction = process.env.NODE_ENV === 'production'
+
+/**
+ * Em produção o frontend chama a API pelo proxy do próprio Next.js (/api -> Render),
+ * então o cookie é first-party e SameSite=Lax funciona em todos os navegadores.
+ * COOKIE_SAMESITE=none só é necessário se o front chamar a API em outro domínio
+ * direto (cookie de terceiro, bloqueado por Safari, Firefox e aba anônima do Chrome).
+ */
+const cookieOptions = (): CookieOptions => {
+  const sameSite = (process.env.COOKIE_SAMESITE as CookieOptions['sameSite']) ?? 'lax'
+  return {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict',
-    maxAge: 7 * 24 * 60 * 60 * 1000,
-  })
+    secure: isProduction || sameSite === 'none',
+    sameSite,
+    path: '/',
+  }
+}
+
+const setAuthCookie = (res: Response, token: string) => {
+  res.cookie('token', token, { ...cookieOptions(), maxAge: 7 * 24 * 60 * 60 * 1000 })
 }
 
 export const register = async (req: Request, res: Response): Promise<void> => {
@@ -110,8 +124,24 @@ export const login = async (req: Request, res: Response): Promise<void> => {
   }
 }
 
+/** Entra na conta de demonstração (dados de exemplo). Desligue com DEMO_LOGIN=false. */
+export const demoLogin = async (_req: Request, res: Response): Promise<void> => {
+  if (process.env.DEMO_LOGIN === 'false') {
+    res.status(404).json({ message: 'Conta de demonstração desativada' })
+    return
+  }
+  try {
+    const user = await getDemoUser()
+    setAuthCookie(res, generateToken(String(user._id)))
+    res.status(200).json({ user: { id: user._id, name: user.name, email: user.email } })
+  } catch (error) {
+    console.error('[demo] Falha ao preparar a conta de demonstração:', error)
+    res.status(500).json({ message: 'Não foi possível abrir a conta de demonstração agora.' })
+  }
+}
+
 export const logout = async (req: Request, res: Response): Promise<void> => {
-  res.clearCookie('token')
+  res.clearCookie('token', cookieOptions())
   res.status(200).json({ message: 'Logout realizado com sucesso' })
 }
 

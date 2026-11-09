@@ -2,7 +2,7 @@
 
 > Financial management system for small businesses — full-stack application built with modern technologies, from authentication to interactive dashboards with charts and data export.
 
-🔗 **[Live Demo](https://financesflow.vercel.app)** · 📦 **[Backend API](https://financeflow-api-n4vi.onrender.com)**
+🔗 **[Live Demo](https://financesflow.vercel.app)** (click **Entrar como admin** to explore without signing up) · 📦 **[Backend API](https://financeflow-api-n4vi.onrender.com)**
 
 > ⚠️ **Note:** The backend is hosted on Render's free tier and may take up to 1 minute to wake up after inactivity. Please wait a moment if the first request is slow.
 
@@ -10,25 +10,29 @@
 
 ## 📸 Preview
 
-<div align="center">
-  <img width="49%" height="866" alt="image" src="https://github.com/user-attachments/assets/99f57112-3d29-4168-8b2b-39cc55223447" />
-  <img width="49%" height="872" alt="image" src="https://github.com/user-attachments/assets/18f37b73-b5f7-4519-b7c8-7c90db43b2e5" />
-  <img width="49%" height="874" alt="image" src="https://github.com/user-attachments/assets/4d67cade-7f64-447b-8c1f-6072eac855ac" />
-  <img width="49%" height="865" alt="image" src="https://github.com/user-attachments/assets/3c9cc6be-175a-48d8-b7de-191f7d116959" />
-
-</div>
+<img src="docs/screenshots/dashboard.jpg" alt="FinancesFlow dashboard: monthly balance on a banknote-blue card, account balances, spending by category and yearly cash flow" width="100%" />
 
 ---
 
 ## 🚀 Features
 
 - 🔐 **Authentication** — Register and login with JWT stored in httpOnly cookies
+- 👀 **Demo login** — One click on "Entrar como admin" opens a demo account with a year of sample data from a fictional bakery. The data is recreated weekly or when visitors delete most of it
 - 📊 **Dashboard** — KPI cards, cash flow chart (Recharts), expense by category and recent transactions
 - 💳 **Transactions** — Full CRUD with filters by type, month, account and text search
 - 🏦 **Accounts** — Manage bank accounts with balance tracking, type and color
 - 🏷️ **Categories** — Organize transactions with custom categories, type and color
 - 📈 **Reports** — Monthly/yearly breakdown by category and account, with CSV export
 - 📱 **Responsive** — Mobile-first layout with collapsible sidebar
+- 🇧🇷 **Visual identity** — Palette taken from Brazilian Real banknotes, guilloché engraving on balances, monospaced figures for money
+
+### Deploy checklist
+
+| Where | What |
+|-------|------|
+| Render | `MONGO_URI`, `JWT_SECRET`, `NODE_ENV=production` |
+| MongoDB Atlas | Cluster running (M0 pauses after long inactivity) and Network Access allowing `0.0.0.0/0` |
+| Vercel | Nothing required. `API_URL` only if the API moves; `NEXT_PUBLIC_API_URL` is no longer used |
 
 ---
 
@@ -47,9 +51,9 @@
 ### Frontend
 | Technology | Purpose |
 |-----------|---------|
-| Next.js 15 (App Router) | React framework with SSR |
+| Next.js 16 (App Router) | React framework, also proxies `/api` to the backend |
 | TypeScript | Type safety |
-| Tailwind CSS | Utility-first styling |
+| Tailwind CSS 4 | Utility-first styling with design tokens in `globals.css` |
 | shadcn/ui | Accessible component library |
 | Recharts | Interactive charts |
 | Axios | HTTP client with credentials |
@@ -102,7 +106,8 @@ financeflow/
 - **Custom hooks with cache** — Module-level cache to avoid unnecessary re-fetches
 - **Mongoose populate** — Avoids N+1 queries by joining category and account data
 - **Next.js App Router** — Route groups `(auth)` and `(dashboard)` for layout separation
-- **CORS with credentials** — Configured to allow cross-origin cookies between Vercel and Render
+- **Same-origin API proxy** — The browser only talks to the Vercel domain; Next.js rewrites `/api/*` to the Render API. The session cookie is first-party (`SameSite=Lax`), so it works in Safari, Firefox, Brave and incognito Chrome, which block third-party cookies between `vercel.app` and `onrender.com`
+- **Resilient boot** — The API stays up if MongoDB is unreachable, retries the connection and reports it on `GET /api/health`
 
 ---
 
@@ -119,14 +124,20 @@ cd backend
 npm install
 ```
 
-Create a `.env` file:
+Create a `.env` file (see `backend/.env.example`):
 ```env
 PORT=5000
 MONGO_URI=mongodb+srv://user:password@cluster.mongodb.net/financeflow
 JWT_SECRET=your_secret_key_here
+# optional
+CLIENT_URL=https://your-preview.vercel.app   # extra CORS origins, comma-separated
+COOKIE_SAMESITE=lax                          # use "none" only if the frontend calls the API cross-site directly
+DEMO_LOGIN=false                             # hides the demo account (on by default)
 ```
 
 **Mock login (optional):** If MongoDB is slow to respond, add `MOCK_AUTH=true` to `.env`. This enables a fake user (`dev@mock.com` / `mock123`) that bypasses the database. Real registered users still authenticate normally.
+
+Check `http://localhost:5000/api/health`: it should return `{"status":"ok","db":"connected"}`.
 
 ```bash
 npm run dev
@@ -139,10 +150,12 @@ cd frontend
 npm install
 ```
 
-Create a `.env.local` file:
+Create a `.env.local` file (optional, this is the default in development):
 ```env
-NEXT_PUBLIC_API_URL=http://localhost:5000/api
+API_URL=http://localhost:5000
 ```
+
+In production, `API_URL` defaults to the Render API. Requests go to `/api/*` on the frontend and Next.js forwards them.
 
 ```bash
 npm run dev
@@ -155,8 +168,11 @@ Access at `http://localhost:3000`
 ## 📡 API Endpoints
 
 ```
+GET    /api/health
+
 POST   /api/auth/register
 POST   /api/auth/login
+POST   /api/auth/demo        # demo account, disable with DEMO_LOGIN=false
 POST   /api/auth/logout
 GET    /api/auth/me
 
@@ -186,7 +202,7 @@ DELETE /api/accounts/:id
 - **MongoDB aggregations** and populate for relational-like queries
 - **Next.js App Router** with route groups and nested layouts
 - **Full-stack deployment** with Render + Vercel + MongoDB Atlas
-- **CORS configuration** for cross-origin authentication
+- **Cross-site cookies**: why they break between Vercel and Render, and how a same-origin proxy fixes it
 - Custom **React hooks** with client-side caching strategy
 
 ---
