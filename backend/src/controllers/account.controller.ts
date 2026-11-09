@@ -1,6 +1,8 @@
 import { Response } from 'express'
 import { z } from 'zod'
+import mongoose from 'mongoose'
 import Account from '../models/Account'
+import Transaction from '../models/Transaction'
 import { AuthRequest } from '../middlewares/auth.middleware'
 
 export const accountSchema = z.object({
@@ -53,13 +55,33 @@ export const updateAccount = async (req: AuthRequest, res: Response): Promise<vo
   res.status(200).json(account)
 }
 
+/**
+ * Conta é opcional na transação. Com ?moveTo=<id> as transações vão para outra conta;
+ * sem ele, ficam sem conta (em vez de apontar para um registro apagado).
+ */
 export const deleteAccount = async (req: AuthRequest, res: Response): Promise<void> => {
-  const account = await Account.findOneAndDelete({ _id: req.params.id, user: req.userId })
-
+  const account = await Account.findOne({ _id: req.params.id, user: req.userId })
   if (!account) {
     res.status(404).json({ message: 'Conta não encontrada' })
     return
   }
 
+  const moveTo = typeof req.query.moveTo === 'string' ? req.query.moveTo : ''
+  const filter = { account: account._id, user: req.userId }
+
+  if (moveTo) {
+    const target = mongoose.isValidObjectId(moveTo)
+      ? await Account.findOne({ _id: moveTo, user: req.userId })
+      : null
+    if (!target || String(target._id) === String(account._id)) {
+      res.status(400).json({ message: 'Conta de destino inválida' })
+      return
+    }
+    await Transaction.updateMany(filter, { account: target._id })
+  } else {
+    await Transaction.updateMany(filter, { $unset: { account: 1 } })
+  }
+
+  await account.deleteOne()
   res.status(200).json({ message: 'Conta deletada com sucesso' })
 }

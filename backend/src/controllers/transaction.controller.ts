@@ -1,6 +1,9 @@
 import { Response } from 'express'
 import { z } from 'zod'
+import mongoose from 'mongoose'
 import Transaction from '../models/Transaction'
+import Category from '../models/Category'
+import Account from '../models/Account'
 import { AuthRequest } from '../middlewares/auth.middleware'
 
 export const transactionSchema = z.object({
@@ -13,10 +16,43 @@ export const transactionSchema = z.object({
   date: z.string().min(1, 'Data obrigatória'),
 })
 
+/**
+ * Garante que categoria e conta existem e pertencem ao usuário logado.
+ * Sem isso, um ID de outro usuário seria aceito e o populate devolveria os dados dele.
+ * Também confere se o tipo da categoria bate com o tipo da transação.
+ */
+async function checkReferences(
+  userId: string | undefined,
+  refs: { category?: string; account?: string; type?: 'income' | 'expense' }
+): Promise<string | null> {
+  const isId = (id: string) => mongoose.isValidObjectId(id)
+
+  if (refs.category !== undefined) {
+    if (!isId(refs.category)) return 'Categoria inválida'
+    const category = await Category.findOne({ _id: refs.category, user: userId }).select('type')
+    if (!category) return 'Categoria não encontrada'
+    if (refs.type && category.type !== refs.type) return 'A categoria não é do mesmo tipo da transação'
+  }
+
+  if (refs.account) {
+    if (!isId(refs.account)) return 'Conta inválida'
+    const account = await Account.exists({ _id: refs.account, user: userId })
+    if (!account) return 'Conta não encontrada'
+  }
+
+  return null
+}
+
 export const createTransaction = async (req: AuthRequest, res: Response): Promise<void> => {
   const parsed = transactionSchema.safeParse(req.body)
   if (!parsed.success) {
     res.status(400).json({ message: parsed.error.issues[0].message })
+    return
+  }
+
+  const refError = await checkReferences(req.userId, parsed.data)
+  if (refError) {
+    res.status(400).json({ message: refError })
     return
   }
 
@@ -66,9 +102,27 @@ export const updateTransaction = async (req: AuthRequest, res: Response): Promis
     return
   }
 
+  const current = await Transaction.findOne({ _id: req.params.id, user: req.userId }).select('type category')
+  if (!current) {
+    res.status(404).json({ message: 'Transação não encontrada' })
+    return
+  }
+
+  const refError = await checkReferences(req.userId, {
+    category: parsed.data.category ?? (parsed.data.type ? String(current.category) : undefined),
+    account: parsed.data.account,
+    type: parsed.data.type ?? current.type,
+  })
+  if (refError) {
+    res.status(400).json({ message: refError })
+    return
+  }
+
+  const { account, ...rest } = parsed.data
+  const update = account === '' ? { ...rest, $unset: { account: 1 } } : parsed.data
   const transaction = await Transaction.findOneAndUpdate(
     { _id: req.params.id, user: req.userId },
-    parsed.data,
+    update,
     { new: true }
   )
 

@@ -44,6 +44,18 @@ const populate = (tx: DemoTransaction) => {
   }
 }
 
+/** Mesmas regras da API real: categoria e conta precisam existir e o tipo precisa bater. */
+function checkReferences(refs: { category?: string; account?: string; type?: 'income' | 'expense' }): string | null {
+  const { categories, accounts } = demoState()
+  if (refs.category !== undefined) {
+    const c = categories.find((x) => x._id === refs.category)
+    if (!c) return 'Categoria não encontrada'
+    if (refs.type && c.type !== refs.type) return 'A categoria não é do mesmo tipo da transação'
+  }
+  if (refs.account && !accounts.some((x) => x._id === refs.account)) return 'Conta não encontrada'
+  return null
+}
+
 /* ---------- transações ---------- */
 
 router.get('/transactions', (req, res) => {
@@ -63,6 +75,8 @@ router.get('/transactions/:id', (req, res) => {
 router.post('/transactions', (req, res) => {
   const parsed = transactionSchema.safeParse(req.body)
   if (!parsed.success) return void res.status(400).json({ message: first(parsed.error.issues) })
+  const refError = checkReferences(parsed.data)
+  if (refError) return void res.status(400).json({ message: refError })
   const state = demoState()
   if (state.transactions.length >= MAX_TRANSACTIONS) {
     return void res.status(400).json({ message: 'A conta de demonstração chegou ao limite de transações.' })
@@ -86,6 +100,12 @@ router.put('/transactions/:id', (req, res) => {
   if (!parsed.success) return void res.status(400).json({ message: first(parsed.error.issues) })
   const tx = demoState().transactions.find((t) => t._id === req.params.id)
   if (!tx) return void res.status(404).json({ message: 'Transação não encontrada' })
+  const refError = checkReferences({
+    category: parsed.data.category ?? (parsed.data.type ? tx.category : undefined),
+    account: parsed.data.account,
+    type: parsed.data.type ?? tx.type,
+  })
+  if (refError) return void res.status(400).json({ message: refError })
   const { date, account, ...rest } = parsed.data
   Object.assign(tx, rest)
   if (date) tx.date = toISODate(date)
@@ -107,7 +127,9 @@ function crud<T extends DemoAccount | DemoCategory>(
   path: string,
   list: () => T[],
   schema: typeof accountSchema | typeof categorySchema,
-  labels: { exists: string; notFound: string; deleted: string }
+  labels: { exists: string; notFound: string; deleted: string },
+  /** Move ou solta as transações antes de apagar; devolve uma mensagem de erro para recusar. */
+  beforeDelete: (doc: T, moveTo: string) => { status: number; body: object } | null
 ) {
   router.get(path, (_req, res) => {
     res.json([...list()].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')))
@@ -136,6 +158,8 @@ function crud<T extends DemoAccount | DemoCategory>(
     const items = list()
     const index = items.findIndex((x) => x._id === req.params.id)
     if (index === -1) return void res.status(404).json({ message: labels.notFound })
+    const refusal = beforeDelete(items[index], typeof req.query.moveTo === 'string' ? req.query.moveTo : '')
+    if (refusal) return void res.status(refusal.status).json(refusal.body)
     items.splice(index, 1)
     res.json({ message: labels.deleted })
   })
@@ -143,9 +167,28 @@ function crud<T extends DemoAccount | DemoCategory>(
 
 crud('/accounts', () => demoState().accounts, accountSchema, {
   exists: 'Conta já existe', notFound: 'Conta não encontrada', deleted: 'Conta deletada com sucesso',
+}, (account, moveTo) => {
+  const { accounts, transactions } = demoState()
+  if (moveTo && (moveTo === account._id || !accounts.some((a) => a._id === moveTo))) {
+    return { status: 400, body: { message: 'Conta de destino inválida' } }
+  }
+  transactions.filter((t) => t.account === account._id).forEach((t) => { t.account = moveTo || undefined })
+  return null
 })
 crud('/categories', () => demoState().categories, categorySchema, {
   exists: 'Categoria já existe', notFound: 'Categoria não encontrada', deleted: 'Categoria deletada com sucesso',
+}, (category, moveTo) => {
+  const { categories, transactions } = demoState()
+  const inUse = transactions.filter((t) => t.category === category._id)
+  if (inUse.length === 0) return null
+  if (!moveTo) {
+    return { status: 409, body: { message: `Esta categoria tem ${inUse.length} ${inUse.length === 1 ? "transação" : "transações"}. Escolha para qual categoria ${inUse.length === 1 ? "movê-la" : "movê-las"}.`, count: inUse.length } }
+  }
+  const target = categories.find((c) => c._id === moveTo)
+  if (!target || target._id === category._id) return { status: 400, body: { message: 'Categoria de destino inválida' } }
+  if (target.type !== category.type) return { status: 400, body: { message: 'A categoria de destino precisa ser do mesmo tipo' } }
+  inUse.forEach((t) => { t.category = target._id })
+  return null
 })
 
 export default router

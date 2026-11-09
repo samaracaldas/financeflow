@@ -15,6 +15,9 @@ import api, { getErrorMessage } from '@/lib/api'
 import { pluralize } from '@/lib/format'
 import { FALLBACK_COLOR, MONEY_COLORS } from '@/lib/palette'
 import { ColorPicker, ErrorNote, Money, PageHeader, TypeToggle } from '@/components/brand'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
 
 interface CategoryFormData {
   name: string
@@ -26,13 +29,14 @@ const CURRENT_YEAR = new Date().getFullYear()
 
 export default function CategoriesPage() {
   const { categories, loading, refetch } = useCategories()
-  const { transactions } = useTransactions()
+  const { transactions, refetch: refetchTransactions } = useTransactions()
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState<CategoryFormData>({ name: '', type: 'expense', color: MONEY_COLORS[0].value })
   const [formError, setFormError] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<ICategory | null>(null)
-  const [error, setError] = useState('')
+  const [moveTo, setMoveTo] = useState('')
+  const [deleteError, setDeleteError] = useState('')
 
   // Total e quantidade no ano corrente, por categoria
   const usage = useMemo(() => {
@@ -46,6 +50,16 @@ export default function CategoriesPage() {
     })
     return map
   }, [transactions])
+
+  const countAll = (id: string) => transactions.filter((t) => t.category?._id === id).length
+  const deleteCount = deleteTarget ? countAll(deleteTarget._id) : 0
+  const moveOptions = deleteTarget ? categories.filter((c) => c.type === deleteTarget.type && c._id !== deleteTarget._id) : []
+
+  const askDelete = (cat: ICategory) => {
+    setDeleteTarget(cat)
+    setMoveTo('')
+    setDeleteError('')
+  }
 
   const groups = useMemo(() => {
     const sort = (list: ICategory[]) => [...list].sort((a, b) => (usage[b._id]?.total ?? 0) - (usage[a._id]?.total ?? 0))
@@ -89,13 +103,14 @@ export default function CategoriesPage() {
 
   const handleDelete = async () => {
     if (!deleteTarget) return
+    if (deleteCount > 0 && !moveTo) return setDeleteError('Escolha a categoria que vai receber as transações.')
     try {
-      await api.delete(`/categories/${deleteTarget._id}`)
+      await api.delete(`/categories/${deleteTarget._id}`, { params: moveTo ? { moveTo } : undefined })
       setDeleteTarget(null)
       refetch()
+      refetchTransactions()
     } catch (err) {
-      setDeleteTarget(null)
-      setError(getErrorMessage(err, 'Não foi possível excluir a categoria.'))
+      setDeleteError(getErrorMessage(err, 'Não foi possível excluir a categoria.'))
     }
   }
 
@@ -105,7 +120,6 @@ export default function CategoriesPage() {
         <Button onClick={() => openNew()}><Plus />Nova categoria</Button>
       </PageHeader>
 
-      {error && <ErrorNote>{error}</ErrorNote>}
 
       {loading ? null : (
         <div className="grid gap-8 lg:grid-cols-2">
@@ -140,7 +154,7 @@ export default function CategoriesPage() {
                             <Button variant="ghost" size="icon" className="size-8 text-muted-foreground" onClick={() => openEdit(cat)} aria-label={`Editar ${cat.name}`}>
                               <Pencil className="size-3.5" />
                             </Button>
-                            <Button variant="ghost" size="icon" className="size-8 text-muted-foreground hover:text-destructive" onClick={() => setDeleteTarget(cat)} aria-label={`Excluir ${cat.name}`}>
+                            <Button variant="ghost" size="icon" className="size-8 text-muted-foreground hover:text-destructive" onClick={() => askDelete(cat)} aria-label={`Excluir ${cat.name}`}>
                               <Trash2 className="size-3.5" />
                             </Button>
                           </div>
@@ -186,11 +200,40 @@ export default function CategoriesPage() {
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>Excluir a categoria “{deleteTarget?.name}”?</DialogTitle>
-            <DialogDescription>As transações dela continuam registradas, mas aparecem como “Sem categoria”. Não dá para desfazer.</DialogDescription>
+            <DialogDescription>
+              {deleteCount === 0
+                ? 'Nenhuma transação usa esta categoria. Não dá para desfazer.'
+                : `${pluralize(deleteCount, 'transação usa', 'transações usam')} esta categoria. Escolha para onde ${deleteCount === 1 ? 'ela vai' : 'elas vão'}.`}
+            </DialogDescription>
           </DialogHeader>
+          {deleteCount > 0 && (
+            <div className="flex flex-col gap-1.5">
+              <Label>Mover para</Label>
+              {moveOptions.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  Não há outra categoria de {deleteTarget?.type === 'income' ? 'entrada' : 'saída'}. Crie uma antes de excluir esta.
+                </p>
+              ) : (
+                <Select value={moveTo} onValueChange={(v) => { setMoveTo(v); setDeleteError('') }}>
+                  <SelectTrigger className="w-full" aria-label="Mover para"><SelectValue placeholder="Escolha uma categoria" /></SelectTrigger>
+                  <SelectContent>
+                    {moveOptions.map((c) => (
+                      <SelectItem key={c._id} value={c._id}>
+                        <span className="size-2.5 rounded-[2px]" style={{ backgroundColor: c.color ?? FALLBACK_COLOR }} />
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+          )}
+          {deleteError && <ErrorNote>{deleteError}</ErrorNote>}
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancelar</Button>
-            <Button variant="destructive" onClick={handleDelete}>Excluir categoria</Button>
+            <Button variant="destructive" onClick={handleDelete} disabled={deleteCount > 0 && moveOptions.length === 0}>
+              {deleteCount > 0 ? 'Mover e excluir' : 'Excluir categoria'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

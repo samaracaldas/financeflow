@@ -38,13 +38,14 @@ const EMPTY_FORM: AccountFormData = { name: '', type: 'bank', color: MONEY_COLOR
 
 export default function AccountsPage() {
   const { accounts, loading, refetch } = useAccounts()
-  const { transactions } = useTransactions()
+  const { transactions, refetch: refetchTransactions } = useTransactions()
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState<AccountFormData>(EMPTY_FORM)
   const [formError, setFormError] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<IAccount | null>(null)
-  const [error, setError] = useState('')
+  const [moveTo, setMoveTo] = useState('none')
+  const [deleteError, setDeleteError] = useState('')
 
   const stats = useMemo(() => {
     const map: Record<string, { income: number; expense: number; balance: number; count: number }> = {}
@@ -96,15 +97,23 @@ export default function AccountsPage() {
     }
   }
 
+  const askDelete = (acc: IAccount) => {
+    setDeleteTarget(acc)
+    setMoveTo('none')
+    setDeleteError('')
+  }
+
+  const deleteCount = deleteTarget ? stats[deleteTarget._id]?.count ?? 0 : 0
+
   const handleDelete = async () => {
     if (!deleteTarget) return
     try {
-      await api.delete(`/accounts/${deleteTarget._id}`)
+      await api.delete(`/accounts/${deleteTarget._id}`, { params: moveTo !== 'none' ? { moveTo } : undefined })
       setDeleteTarget(null)
       refetch()
+      refetchTransactions()
     } catch (err) {
-      setDeleteTarget(null)
-      setError(getErrorMessage(err, 'Não foi possível excluir a conta.'))
+      setDeleteError(getErrorMessage(err, 'Não foi possível excluir a conta.'))
     }
   }
 
@@ -114,7 +123,6 @@ export default function AccountsPage() {
         <Button onClick={openNew}><Plus />Nova conta</Button>
       </PageHeader>
 
-      {error && <ErrorNote>{error}</ErrorNote>}
 
       <NoteCard label="Saldo somando todas as contas" value={totalBalance} color={totalBalance < 0 ? NOTE.red : NOTE.sepia}>
         <span>{pluralize(accounts.length, 'conta', 'contas')}</span>
@@ -140,7 +148,7 @@ export default function AccountsPage() {
                     <Button variant="ghost" size="icon" className="size-8 text-white/85 hover:bg-white/15 hover:text-white" onClick={() => openEdit(acc)} aria-label={`Editar ${acc.name}`}>
                       <Pencil className="size-3.5" />
                     </Button>
-                    <Button variant="ghost" size="icon" className="size-8 text-white/85 hover:bg-white/15 hover:text-white" onClick={() => setDeleteTarget(acc)} aria-label={`Excluir ${acc.name}`}>
+                    <Button variant="ghost" size="icon" className="size-8 text-white/85 hover:bg-white/15 hover:text-white" onClick={() => askDelete(acc)} aria-label={`Excluir ${acc.name}`}>
                       <Trash2 className="size-3.5" />
                     </Button>
                   </div>
@@ -211,8 +219,27 @@ export default function AccountsPage() {
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>Excluir a conta “{deleteTarget?.name}”?</DialogTitle>
-            <DialogDescription>As transações dela continuam registradas, mas ficam sem conta. Não dá para desfazer.</DialogDescription>
+            <DialogDescription>
+              {deleteCount === 0
+                ? 'Nenhuma transação usa esta conta. Não dá para desfazer.'
+                : `${pluralize(deleteCount, 'transação está', 'transações estão')} nesta conta. Elas continuam registradas; escolha onde ficam.`}
+            </DialogDescription>
           </DialogHeader>
+          {deleteCount > 0 && (
+            <div className="flex flex-col gap-1.5">
+              <Label>Transações desta conta</Label>
+              <Select value={moveTo} onValueChange={setMoveTo}>
+                <SelectTrigger className="w-full" aria-label="Destino das transações"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Ficam sem conta</SelectItem>
+                  {accounts.filter((a) => a._id !== deleteTarget?._id).map((a) => (
+                    <SelectItem key={a._id} value={a._id}>Mover para {a.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          {deleteError && <ErrorNote>{deleteError}</ErrorNote>}
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancelar</Button>
             <Button variant="destructive" onClick={handleDelete}>Excluir conta</Button>

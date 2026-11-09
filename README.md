@@ -103,6 +103,9 @@ financeflow/
 
 - **JWT in httpOnly cookies** — More secure than localStorage, prevents XSS attacks
 - **Zod validation** — Runtime schema validation on all API endpoints
+- **Ownership checks** — A transaction can only reference the user's own category and account, and the category type must match the transaction type
+- **Safe deletes** — Deleting a category in use requires choosing where its transactions go (`?moveTo=`); deleting an account moves them or leaves them without an account, never pointing to a deleted record
+- **Rate limiting and security headers** — `express-rate-limit` on login (per e-mail, so users behind the same proxy IP don't block each other) and sign-up, plus `helmet`
 - **Custom hooks with cache** — Module-level cache to avoid unnecessary re-fetches
 - **Mongoose populate** — Avoids N+1 queries by joining category and account data
 - **Next.js App Router** — Route groups `(auth)` and `(dashboard)` for layout separation
@@ -136,7 +139,7 @@ COOKIE_SAMESITE=lax                          # use "none" only if the frontend c
 DEMO_LOGIN=false                             # hides the demo account (on by default)
 ```
 
-**Mock login (optional):** If MongoDB is slow to respond, add `MOCK_AUTH=true` to `.env`. This enables a fake user (`dev@mock.com` / `mock123`) that bypasses the database. Real registered users still authenticate normally.
+**No database at hand?** The "Entrar como admin" button works without MongoDB: the demo account lives in memory.
 
 Check `http://localhost:5000/api/health`: it should return `{"status":"ok","db":"connected"}`.
 

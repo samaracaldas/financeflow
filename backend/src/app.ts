@@ -1,7 +1,8 @@
 import dotenv from "dotenv";
 dotenv.config();
 
-import express from "express";
+import express, { NextFunction, Request, Response } from "express";
+import helmet from "helmet";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import connectDB, { dbState } from "./config/db";
@@ -45,7 +46,8 @@ app.use(
     credentials: true,
   })
 );
-app.use(express.json());
+app.use(helmet());
+app.use(express.json({ limit: "100kb" }));
 app.use(cookieParser());
 
 app.get("/api/health", (_req, res) => {
@@ -63,5 +65,19 @@ app.use("/api", demoRouter);
 app.use("/api/transactions", transactionRoutes);
 app.use("/api/categories", categoryRoutes);
 app.use("/api/accounts", accountRoutes);
+
+// IDs malformados (CastError do Mongoose) viram 404, não 500; o resto vira 500 sem detalhes internos
+app.use((err: Error & { name?: string; status?: number }, _req: Request, res: Response, _next: NextFunction) => {
+  if (err.name === "CastError") {
+    res.status(404).json({ message: "Registro não encontrado" });
+    return;
+  }
+  if (err.status && err.status < 500) {
+    res.status(err.status).json({ message: err.message });
+    return;
+  }
+  console.error("[erro]", err);
+  res.status(500).json({ message: "Erro no servidor" });
+});
 
 export default app;

@@ -17,8 +17,6 @@ const loginSchema = z.object({
   password: z.string().min(1, 'Senha obrigatória'),
 })
 
-const MOCK_USER = { id: '000000000000000000000001', name: 'Dev User', email: 'dev@mock.com' }
-const MOCK_PASSWORD = 'mock123'
 
 const isProduction = process.env.NODE_ENV === 'production'
 
@@ -80,13 +78,6 @@ export const register = async (req: Request, res: Response): Promise<void> => {
 }
 
 export const login = async (req: Request, res: Response): Promise<void> => {
-  if (process.env.MOCK_AUTH === 'true' && req.body.email === MOCK_USER.email && req.body.password === MOCK_PASSWORD) {
-    const token = generateToken(MOCK_USER.id)
-    setAuthCookie(res, token)
-    res.status(200).json({ user: MOCK_USER })
-    return
-  }
-
   try {
     const parsed = loginSchema.safeParse(req.body)
     if (!parsed.success) {
@@ -145,11 +136,6 @@ export const logout = async (req: Request, res: Response): Promise<void> => {
 export const getMe = async (req: AuthRequest, res: Response): Promise<void> => {
   if (req.userId === DEMO_USER.id) {
     res.status(200).json(DEMO_USER)
-    return
-  }
-
-  if (process.env.MOCK_AUTH === 'true' && req.userId === MOCK_USER.id) {
-    res.status(200).json(MOCK_USER)
     return
   }
 
