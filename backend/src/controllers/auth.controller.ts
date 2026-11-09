@@ -4,7 +4,7 @@ import bcrypt from 'bcryptjs'
 import { z } from 'zod'
 import User from '../models/User'
 import generateToken from '../utils/generateToken'
-import { getDemoUser } from '../utils/demoAccount'
+import { DEMO_USER } from '../demo/store'
 
 const registerSchema = z.object({
   name: z.string().min(2, 'Nome deve ter pelo menos 2 caracteres'),
@@ -124,20 +124,17 @@ export const login = async (req: Request, res: Response): Promise<void> => {
   }
 }
 
-/** Entra na conta de demonstração (dados de exemplo). Desligue com DEMO_LOGIN=false. */
+/**
+ * "Entrar como admin": conta de demonstração mockada em memória (src/demo).
+ * Não usa o MongoDB, então funciona mesmo com o banco fora do ar. Desligue com DEMO_LOGIN=false.
+ */
 export const demoLogin = async (_req: Request, res: Response): Promise<void> => {
   if (process.env.DEMO_LOGIN === 'false') {
     res.status(404).json({ message: 'Conta de demonstração desativada' })
     return
   }
-  try {
-    const user = await getDemoUser()
-    setAuthCookie(res, generateToken(String(user._id)))
-    res.status(200).json({ user: { id: user._id, name: user.name, email: user.email } })
-  } catch (error) {
-    console.error('[demo] Falha ao preparar a conta de demonstração:', error)
-    res.status(500).json({ message: 'Não foi possível abrir a conta de demonstração agora.' })
-  }
+  setAuthCookie(res, generateToken(DEMO_USER.id))
+  res.status(200).json({ user: DEMO_USER })
 }
 
 export const logout = async (req: Request, res: Response): Promise<void> => {
@@ -146,6 +143,11 @@ export const logout = async (req: Request, res: Response): Promise<void> => {
 }
 
 export const getMe = async (req: AuthRequest, res: Response): Promise<void> => {
+  if (req.userId === DEMO_USER.id) {
+    res.status(200).json(DEMO_USER)
+    return
+  }
+
   if (process.env.MOCK_AUTH === 'true' && req.userId === MOCK_USER.id) {
     res.status(200).json(MOCK_USER)
     return

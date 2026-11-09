@@ -9,6 +9,7 @@ import authRoutes from "./routes/auth.routes";
 import transactionRoutes from "./routes/transaction.routes";
 import categoryRoutes from "./routes/category.routes";
 import accountRoutes from "./routes/account.routes";
+import demoRouter from "./demo/router";
 
 const REQUIRED_ENV = ["MONGO_URI", "JWT_SECRET"] as const;
 const missingEnv = REQUIRED_ENV.filter((key) => !process.env[key]);
@@ -57,6 +58,8 @@ app.get("/api/health", (_req, res) => {
 });
 
 app.use("/api/auth", authRoutes);
+// conta de demonstração em memória; outros usuários seguem para as rotas abaixo
+app.use("/api", demoRouter);
 app.use("/api/transactions", transactionRoutes);
 app.use("/api/categories", categoryRoutes);
 app.use("/api/accounts", accountRoutes);

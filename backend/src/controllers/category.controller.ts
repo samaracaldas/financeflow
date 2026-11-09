@@ -3,7 +3,7 @@ import { z } from 'zod'
 import Category from '../models/Category'
 import { AuthRequest } from '../middlewares/auth.middleware'
 
-const categorySchema = z.object({
+export const categorySchema = z.object({
   name: z.string().min(2, 'Nome deve ter pelo menos 2 caracteres'),
   type: z.enum(['income', 'expense']),
   color: z.string().min(1, 'Cor obrigatória'),

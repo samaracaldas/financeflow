@@ -17,7 +17,7 @@
 ## 🚀 Features
 
 - 🔐 **Authentication** — Register and login with JWT stored in httpOnly cookies
-- 👀 **Demo login** — One click on "Entrar como admin" opens a demo account with a year of sample data from a fictional bakery. The data is recreated weekly or when visitors delete most of it
+- 👀 **Demo login** — One click on "Entrar como admin" opens a demo account with a year of sample data from a fictional bakery. It is mocked in memory (`backend/src/demo`), so the demo works even when MongoDB is down. Data resets when the server restarts, weekly, or when visitors delete most of it
 - 📊 **Dashboard** — KPI cards, cash flow chart (Recharts), expense by category and recent transactions
 - 💳 **Transactions** — Full CRUD with filters by type, month, account and text search
 - 🏦 **Accounts** — Manage bank accounts with balance tracking, type and color
@@ -108,6 +108,7 @@ financeflow/
 - **Next.js App Router** — Route groups `(auth)` and `(dashboard)` for layout separation
 - **Same-origin API proxy** — The browser only talks to the Vercel domain; Next.js rewrites `/api/*` to the Render API. The session cookie is first-party (`SameSite=Lax`), so it works in Safari, Firefox, Brave and incognito Chrome, which block third-party cookies between `vercel.app` and `onrender.com`
 - **Resilient boot** — The API stays up if MongoDB is unreachable, retries the connection and reports it on `GET /api/health`
+- **In-memory demo account** — A small Express router answers `/api/transactions`, `/categories` and `/accounts` for the demo token with the same Zod validation and response shape as the real API; every other user falls through to MongoDB
 
 ---
 
@@ -172,7 +173,7 @@ GET    /api/health
 
 POST   /api/auth/register
 POST   /api/auth/login
-POST   /api/auth/demo        # demo account, disable with DEMO_LOGIN=false
+POST   /api/auth/demo        # in-memory demo account, disable with DEMO_LOGIN=false
 POST   /api/auth/logout
 GET    /api/auth/me
 

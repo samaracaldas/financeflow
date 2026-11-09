@@ -3,7 +3,7 @@ import { z } from 'zod'
 import Transaction from '../models/Transaction'
 import { AuthRequest } from '../middlewares/auth.middleware'
 
-const transactionSchema = z.object({
+export const transactionSchema = z.object({
   title: z.string().min(2, 'Título deve ter pelo menos 2 caracteres'),
   amount: z.number().positive('Valor deve ser positivo'),
   type: z.enum(['income', 'expense']),
